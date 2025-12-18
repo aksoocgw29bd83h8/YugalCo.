@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Yugal & Co. — Book Appointment</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+:root {
+  --bg:#000; --card:#1c1c1c; --muted:#aaa; --gold:#d4af37; --gold-light:#e0b56f; --white:#fff;
+}
+body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--white);}
+header{background:#111;padding:16px;display:flex;align-items:center;gap:16px;}
+.brand h1{margin:0;font-size:20px;letter-spacing:2px;}
+.brand p{margin:0;color:var(--muted);}
+main{max-width:900px;margin:20px auto;padding:0 16px;}
+.grid{display:grid;grid-template-columns:1fr 360px;gap:20px;}
+.card{background:var(--card);padding:20px;border-radius:12px;}
+label{display:block;margin:12px 0 4px;color:var(--muted);}
+input,select,textarea{width:100%;padding:10px;border:none;border-radius:8px;background:#2a2a2a;color:var(--white);}
+textarea{resize:vertical;min-height:80px;}
+button.primary{width:100%;padding:14px;background:var(--gold);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;margin-top:12px;}
+button.primary:hover{background:var(--gold-light);}
+.appointments{margin-top:14px;display:flex;flex-direction:column;gap:8px;}
+.appointment{background:#141414;padding:10px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;}
+.chip{background:#222;padding:4px 6px;border-radius:6px;font-size:12px;color:var(--muted);}
+.danger{background:#2a0b0b;color:#ffb3b3;padding:6px 8px;border-radius:6px;border:none;cursor:pointer;font-size:12px;}
+.approve{background:#0b502a;color:#b3ffb3;padding:6px 8px;border-radius:6px;border:none;cursor:pointer;font-size:12px;margin-right:5px;}
+.small{font-size:12px;color:var(--muted);}
+@media(max-width:880px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>YUGAL & CO.</h1>
+    <p>Hair & Beauty Salon — Appointments 9:00 — 20:00</p>
+  </div>
+</header>
+
+<main>
+<div class="grid">
+  <!-- Booking Form -->
+  <div class="card">
+    <h2>Book an Appointment</h2>
+    <form id="bookingForm">
+      <label>Full Name</label>
+      <input type="text" id="name" required placeholder="Client full name" />
+      <label>Phone</label>
+      <input type="tel" id="phone" required placeholder="9706381294" pattern="[0-9+ -]{6,}" />
+      <label>Email (optional)</label>
+      <input type="email" id="email" placeholder="email@example.com" />
+      <label>Select Service</label>
+      <select id="serviceSelect" required>
+        <option value="">-- Choose service --</option>
+      </select>
+      <label>Date</label>
+      <input type="date" id="dateInput" required />
+      <label>Available Time</label>
+      <select id="timeSelect" required>
+        <option value="">-- Choose time --</option>
+      </select>
+      <label>Notes (optional)</label>
+      <textarea id="notes" placeholder="Extra details..."></textarea>
+      <button class="primary" type="submit">Confirm Appointment</button>
+      <div class="small">Slots auto-adjust based on service duration + 5-min buffer.</div>
+    </form>
+  </div>
+
+  <!-- Right Column -->
+  <aside>
+    <div class="card">
+      <h3 style="margin-top:0;">Services & Durations</h3>
+      <div id="servicesList" class="small"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0;">Bookings</h3>
+      <div id="appointmentsContainer" class="appointments"></div>
+      <div class="small">Cancel booking to free slot.</div>
+    </div>
+  </aside>
+</div>
+
+<footer class="card" style="text-align:center;margin-top:20px;">
+  © <span id="year"></span> Yugal & Co. Hair & Beauty Salon | Appointments Only | Ph: 9706381294
+</footer>
+</main>
+
+<script>
+// --- Configuration ---
+const SERVICE_DEFS = [
+  { key: 'hair_cut', label: 'Hair Cut – NPR 200', duration: 40 },
+  { key: 'hair_cut_beard', label: 'Hair Cut + Beard Trim – NPR 300', duration: 50 },
+  { key: 'beard_trim', label: 'Beard Trim – NPR 100', duration: 10 },
+  { key: 'full_service', label: 'Hair + Beard Trim + Normal Cleansing – NPR 500', duration: 60 },
+  { key: 'cleansing_pack', label: 'Cleansing Pack – NPR 500', duration: 25 }
+];
+const WORK_START_HOUR=9, WORK_END_HOUR=20, BUFFER_MIN=5;
+const STORAGE_KEY='yugal_bookings';
+const YOUR_WHATSAPP_NUMBER='9779706381294'; // Replace with your WhatsApp number including country code
+
+// --- Helpers ---
+function pad(n){ return (n<10?'0':'')+n; }
+function toDateTime(dateStr,timeStr){ return new Date(dateStr+'T'+timeStr+':00'); }
+function addMinutes(date,mins){ return new Date(date.getTime()+mins*60000); }
+function loadBookings(){ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); }
+function saveBookings(arr){ localStorage.setItem(STORAGE_KEY,JSON.stringify(arr)); }
+
+// --- DOM references ---
+const serviceSelect=document.getElementById('serviceSelect');
+const dateInput=document.getElementById('dateInput');
+const timeSelect=document.getElementById('timeSelect');
+const bookingForm=document.getElementById('bookingForm');
+const servicesList=document.getElementById('servicesList');
+const appointmentsContainer=document.getElementById('appointmentsContainer');
+const notesInput=document.getElementById('notes');
+const yearSpan=document.getElementById('year');
+
+// --- Initialize ---
+function init(){
+  yearSpan.textContent=new Date().getFullYear();
+  SERVICE_DEFS.forEach(s=>{
+    const opt=document.createElement('option');
+    opt.value=s.key; opt.textContent=`${s.label} (${s.duration} min)`;
+    serviceSelect.appendChild(opt);
+  });
+  servicesList.innerHTML=SERVICE_DEFS.map(s=>`<div><strong>${s.label}</strong> — ${s.duration} min</div>`).join('');
+  const today=new Date();
+  dateInput.min=`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+  dateInput.value=dateInput.min;
+
+  serviceSelect.addEventListener('change',regenerateSlots);
+  dateInput.addEventListener('change',regenerateSlots);
+  bookingForm.addEventListener('submit',handleBooking);
+  regenerateSlots();
+  renderAppointmentsForSelectedDate();
+}
+
+// --- Get duration ---
+function getServiceDuration(key){
+  const s=SERVICE_DEFS.find(x=>x.key===key);
+  return s?s.duration:null;
+}
+
+// --- Available slots ---
+function getAvailableTimeSlots(dateStr, serviceKey) {
+  const bookings = loadBookings().filter(b => b.date===dateStr).sort((a,b)=>toDateTime(a.date,a.start)-toDateTime(b.date,b.start));
+  const duration = getServiceDuration(serviceKey);
+  if(!duration) return [];
+  let slots = [];
+  const now = new Date();
+  const selectedDate = new Date(dateStr+'T00:00:00'); selectedDate.setHours(0,0,0,0);
+  let current = new Date(selectedDate); current.setHours(WORK_START_HOUR,0,0,0);
+  if(selectedDate.toDateString()===now.toDateString()){
+    if(now.getHours()>=WORK_END_HOUR) return [];
+    const roundedMinutes = Math.ceil(now.getMinutes()/5)*5;
+    current.setHours(Math.max(WORK_START_HOUR, now.getHours()), roundedMinutes,0,0);
+  }
+  const lastStart = new Date(selectedDate); lastStart.setHours(WORK_END_HOUR,0,0,0); lastStart.setMinutes(lastStart.getMinutes()-duration);
+  for(const b of bookings){
+    const bStart=toDateTime(b.date,b.start);
+    const bEnd=addMinutes(bStart,b.duration+BUFFER_MIN);
+    if(current<bStart){
+      if(addMinutes(current,duration)<=bStart && current<=lastStart) slots.push(pad(current.getHours())+':'+pad(current.getMinutes()));
+      current=new Date(bEnd);
+    }else if(current>=bStart && current<bEnd){
+      current=new Date(bEnd);
+    }
+  }
+  while(current<=lastStart){
+    slots.push(pad(current.getHours())+':'+pad(current.getMinutes()));
+    current=addMinutes(current,duration+BUFFER_MIN);
+  }
+  return slots;
+}
+
+function regenerateSlots(){
+  const serviceKey=serviceSelect.value;
+  const dateStr=dateInput.value;
+  timeSelect.innerHTML='<option value="">-- Choose time --</option>';
+  if(!serviceKey||!dateStr)return;
+  const slots=getAvailableTimeSlots(dateStr,serviceKey);
+  if(slots.length===0){ const opt=document.createElement('option'); opt.disabled=true; opt.textContent='No available slots'; timeSelect.appendChild(opt); return; }
+  slots.forEach(t=>{
+    const opt=document.createElement('option'); opt.value=t;
+    const end=addMinutes(toDateTime(dateStr,t),getServiceDuration(serviceKey));
+    opt.textContent=`${t} — ends ${pad(end.getHours())}:${pad(end.getMinutes())}`;
+    timeSelect.appendChild(opt);
+  });
+}
+
+// --- Booking handler ---
+function handleBooking(ev){
+  ev.preventDefault();
+  const name=document.getElementById('name').value.trim();
+  const phone=document.getElementById('phone').value.trim();
+  const email=document.getElementById('email').value.trim();
+  const serviceKey=serviceSelect.value;
+  const date=dateInput.value;
+  const start=timeSelect.value;
+  const notes=notesInput.value.trim();
+  if(!name||!phone||!serviceKey||!date||!start){ alert('Complete all required fields'); return; }
+  const duration=getServiceDuration(serviceKey);
+  const available=getAvailableTimeSlots(date,serviceKey);
+  if(!available.includes(start)){ alert('Slot just taken. Choose another time.'); regenerateSlots(); return; }
+
+  const serviceLabel=SERVICE_DEFS.find(s=>s.key===serviceKey).label;
+  const booking={id:'b_'+Date.now(),name,phone,email,serviceKey,serviceLabel,date,start,duration,notes,approved:false};
+  const all=loadBookings(); all.push(booking); saveBookings(all);
+
+  // WhatsApp to owner
+  const msg=encodeURIComponent(`New booking:\nName: ${name}\nService: ${serviceLabel}\nDate: ${date}\nTime: ${start}\nPhone: ${phone}`);
+  window.open(`https://wa.me/${YOUR_WHATSAPP_NUMBER}?text=${msg}`, '_blank');
+
+  notesInput.value=''; regenerateSlots(); renderAppointmentsForSelectedDate();
+}
+
+// --- Render appointments ---
+function renderAppointmentsForSelectedDate(){
+  const date=dateInput.value;
+  const bookings=loadBookings().filter(b=>b.date===date).sort((a,b)=>toDateTime(a.date,a.start)-toDateTime(b.date,b.start));
+  appointmentsContainer.innerHTML='';
+  if(bookings.length===0){ appointmentsContainer.innerHTML='<div class="small">No bookings for this date.</div>'; return; }
+  bookings.forEach(b=>{
+    const el=document.createElement('div'); el.className='appointment';
+    const left=document.createElement('div'); left.innerHTML=`<div><strong>${b.name}</strong> — <span class="chip">${b.serviceLabel}</span></div>
+      <div class="small">${b.date} • ${b.start} → ${pad(addMinutes(toDateTime(b.date,b.start),b.duration).getHours())}:${pad(addMinutes(toDateTime(b.date,b.start),b.duration).getMinutes())}</div>
+      <div class="small">Ph: ${b.phone} ${b.email? '•'+b.email:''}</div>
+      ${b.notes?'<div class="small">Note: '+b.notes+'</div>':''}`;
+    const right=document.createElement('div');
+    // Approve button
+    const approveBtn=document.createElement('button'); approveBtn.className='approve'; approveBtn.textContent='Approve';
+    approveBtn.addEventListener('click',()=>{
+      b.approved=true; saveBookings(loadBookings()); regenerateSlots(); renderAppointmentsForSelectedDate();
+      // WhatsApp to client
+      const clientMsg=encodeURIComponent(`Dear ${b.name}, your appointment for ${b.serviceLabel} on ${b.date} at ${b.start} is approved!`);
+      window.open(`https://wa.me/${b.phone.replace(/[^0-9]/g,'')}?text=${clientMsg}`, '_blank');
+    });
+    // Cancel button
+    const cancelBtn=document.createElement('button'); cancelBtn.className='danger'; cancelBtn.textContent='Cancel';
+    cancelBtn.addEventListener('click',()=>{
+      if(!confirm('Cancel this booking?'))return;
+      const all=loadBookings().filter(x=>x.id!==b.id); saveBookings(all); regenerateSlots(); renderAppointmentsForSelectedDate();
+    });
+    right.appendChild(approveBtn); right.appendChild(cancelBtn); el.appendChild(left); el.appendChild(right); appointmentsContainer.appendChild(el);
+  });
+}
+
+dateInput.addEventListener('change',()=>{ regenerateSlots(); renderAppointmentsForSelectedDate(); });
+init();
+</script>
+</body>
+</html>
